@@ -38,32 +38,42 @@ class TitFeeder(Boxes):
         # The width of the spacer (part of the locking mechanism) in mm
         self.spacer_width = 15.0
 
+        # roof maintenance hole clearance
+        self.roof_maintenance_clearance = 20.0
+
         self.buildArgParser()
         # Add non default cli params if needed (see argparse std lib)
         self.argparser.add_argument(
-            "--ball_diameter",  action="store", type=float, default=59.0,
+            "--ball_diameter",  action="store", type=float, default=75.0,
             help="The diameter of the food balls. Give some extra mm to make it a loose fit")
         self.argparser.add_argument(
             "--pole_diameter",  action="store", type=float, default=8.0,
             help="The diameter of the poles.")
         self.argparser.add_argument(
-            "--balcony_width",  action="store", type=float, default=19.0,
+            "--balcony_width",  action="store", type=float, default=35.0,
             help="The width of the area outside of the poles.")
         self.argparser.add_argument(
-            "--balcony_height",  action="store", type=float, default=25.0,
+            "--balcony_height",  action="store", type=float, default=20.0,
             help="The height of the balcony in mm. Set to 0 if you don't want to have walls at all.")
         self.argparser.add_argument(
-            "--roof_overhang",  action="store", type=float, default=35.0,
+            "--roof_overhang",  action="store", type=float, default=40.0,
             help="Defines how much wider than the bottom floor the roof is.")
         self.argparser.add_argument(
-            "--roof_height",  action="store", type=float, default=50.0,
+            "--roof_height",  action="store", type=float, default=113.0,
             help="The height of the roof in mm.")
         self.argparser.add_argument(
-            "--roof_hole_diameter",  action="store", type=float, default=25.0,
+            "--roof_hole_diameter",  action="store", type=float, default=5.0,
             help="The diameter of the hole of the roof in mm. Set to 0 if you don't want to attach a hanger.")
 
     def calc_face_angle(self, radius, height, sides):
+        """
+            Calculate the angle between two roof tiles.
+        """
+
         def cross(a, b):
+            """
+                The cross product of two vectors
+            """
             c = [a[1]*b[2] - a[2]*b[1],
                 a[2]*b[0] - a[0]*b[2],
                 a[0]*b[1] - a[1]*b[0]]
@@ -71,22 +81,37 @@ class TitFeeder(Boxes):
             return c
 
         def scalar(a,b):
+            """
+                The scalar product of two vectors
+            """
             return a[0] * b[0] + a[1] * b[1] +a[2] * b[2]
 
         def norm(a):
+            """
+                The norm of a vector
+            """
             return math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
 
         def add(a,b):
-            return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]
+            """
+                The sum of two vectors
+            """
+            return [aa + bb for aa, bb in zip(a,b)]
 
-        r_angle_center = math.radians(360/sides)
-        base = radius * math.sin(r_angle_center / 2) * 2
-        base_height = radius * math.cos(r_angle_center / 2)
+        ar_center = math.radians(360/sides)
+        base = radius * math.sin(ar_center / 2) * 2
+        base_height = radius * math.cos(ar_center / 2)
+
+        # Points are
+        # P one corner at the bottom of the pyramid
+        # C The center of the bottom of the pyramid
+        # O The tip of the pyramid
+        # Q, B the corners of the pyramid left and right of P
 
         PC = [-base/2, base_height, 0]
         PB = [-base, 0, 0]
         CO = [0,0,height]
-        PQ = [base * math.cos(r_angle_center), base * math.sin(r_angle_center), 0]
+        PQ = [base * math.cos(ar_center), base * math.sin(ar_center), 0]
 
         PO = add(PC, CO)
 
@@ -144,6 +169,9 @@ class TitFeeder(Boxes):
     def get_roof_callback(self):
         def cb(number):
             if number == 0:
+
+                self.hole(0,0, self.r_ceiling - self.roof_maintenance_clearance)
+
                 self.ctx.stroke()
                 with self.saved_context():
                     self.set_source_color(Color.ETCHING)
@@ -206,8 +234,8 @@ class TitFeeder(Boxes):
         h_roof_tile = math.sqrt(h_roof_floor**2 + h_roof**2)
 
         a_roof = math.degrees(math.atan(h_roof/h_roof_floor))
+        print("roof angle", a_roof, h_roof, h_roof_floor)
         ar_roof = math.radians(a_roof)
-        a_roof_tile = math.degrees(math.atan(h_roof_tile / (0.5*r_roof)))
 
         ar_tile_base = math.atan(h_roof_tile / (l_roof/2))
         a_tile_base = math.degrees(ar_tile_base)
@@ -286,8 +314,6 @@ class TitFeeder(Boxes):
         r_inner, _, l_inner = self.regularPolygon(corners=self.sides, radius=r_inner)
         r_outer, _, l_outer = self.regularPolygon(corners=self.sides, radius=r_outer)
 
-
-
         overallsize = 2 * (r_outer)
 
         if self.move(overallsize, overallsize, move, before=True):
@@ -345,27 +371,39 @@ class TitFeeder(Boxes):
 
         segment_angle = math.sin(math.radians(360.0 / self.sides / 2))
         floor_outset = t / math.tan(math.radians(90.0-180/self.sides))
-        # l_floor = 2 * r_floor * segment_angle + 2*floor_outset
         l_floor = 2 * r_floor * segment_angle
         l_ceiling = 2 * r_ceiling * segment_angle
         self.l_ceiling = l_ceiling
 
+
+        # render the ceiling
+        self.regularPolygonWall(corners=self.sides, r=r_ceiling, edges="e", callback=self.get_pole_callback(r_ceiling - r_poles, d_pole, True), move="up")
+
+        # render the roof base
+        self.regularPolygonWall(corners=self.sides, r=r_roof, edges="e", callback=self.get_roof_callback(), move="up")
+
+        # only render a balcony if height is >0
         if h_balcony > 0:
+            # render the floor plate
             self.regularPolygonWall(corners=self.sides, r=r_floor, edges="F", callback=self.get_pole_callback(r_floor-r_poles, d_pole, False), move="right")
+
+            # render the balcony walls
             for i in range(self.sides):
-                print("rendering balcony walls")
                 self.balcony_wall(x=l_floor, finger_padding=floor_outset, y=h_balcony, move="up")
         else:
-            self.regularPolygonWall(corners=self.sides, r=r_floor, edges="e", callback=self.get_pole_callback(r_floor - r_poles, d_pole, False))
+            # render the floor plate
+            self.regularPolygonWall(corners=self.sides, r=r_floor, edges="e", callback=self.get_pole_callback(r_floor - r_poles, d_pole, False), move="right")
 
 
-        self.regularPolygonWall(corners=self.sides, r=r_ceiling, edges="e", callback=self.get_pole_callback(r_ceiling - r_poles, d_pole, True), move="right")
-        self.regularPolygonWall(corners=self.sides, r=r_roof, edges="e", callback=self.get_roof_callback(), move="right")
+        # render the spacer
+        self.lock_part(r_ceiling + self.slide_clearance, r_ceiling + self.slide_clearance + self.spacer_width, move="up")
 
-        for i in range(self.sides):
-            self.roof_tile(r_roof, move="right")
-
-        self.lock_part(r_ceiling + self.slide_clearance, r_ceiling + self.slide_clearance + self.spacer_width, move="right")
+        # render the bracket
         r_inner = r_ceiling - r_clearance * self.pole_clearance_factor
         r_outer = r_ceiling + self.slide_clearance + self.spacer_width
         self.lock_part(r_inner, r_outer, move="right")
+
+        # render the roof tiles
+        for i in range(self.sides):
+            self.roof_tile(r_roof, move="up")
+
